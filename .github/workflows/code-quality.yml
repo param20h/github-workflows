@@ -1,0 +1,202 @@
+# Code Quality Workflow
+# This workflow enforces code quality standards on pull requests
+
+name: Code Quality
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    # JavaScript/TypeScript linting
+    - name: Run ESLint
+      run: npm run lint -- --format json --output-file eslint-report.json
+      continue-on-error: true
+      
+    # CSS linting
+    - name: Run Stylelint
+      run: npm run lint:css -- --formatter json --output-file stylelint-report.json
+      continue-on-error: true
+      
+    # Prettier formatting check
+    - name: Check Prettier formatting
+      run: npm run format:check
+      
+    # Upload lint results
+    - name: Upload ESLint report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: eslint-report
+        path: eslint-report.json
+        
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # Required for SARIF upload
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    # Dependency vulnerability scan
+    - name: Run npm audit
+      run: npm audit --audit-level high
+      
+    # SAST (Static Application Security Testing)
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: javascript
+        
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+      
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      
+    # Additional security scanning with Semgrep
+    - name: Run Semgrep
+      uses: returntocorp/semgrep-action@v1
+      with:
+        publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+        
+  test-coverage:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    # Run tests with coverage
+    - name: Run tests with coverage
+      run: npm run test:coverage
+      
+    # Check coverage thresholds
+    - name: Check coverage thresholds
+      run: |
+        # Extract coverage percentage
+        COVERAGE=$(cat coverage/coverage-summary.json | jq '.total.lines.pct')
+        echo "Current coverage: $COVERAGE%"
+        
+        # Fail if coverage is below 80%
+        if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+          echo "Coverage is below 80%!"
+          exit 1
+        fi
+        
+    # Upload coverage reports
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/lcov.info
+        fail_ci_if_error: true
+        
+    - name: Upload coverage to Coveralls
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path-to-lcov: ./coverage/lcov.info
+        
+  type-check:
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.changed_files, '.ts') || contains(github.event.pull_request.changed_files, '.tsx')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    # TypeScript type checking
+    - name: Run TypeScript compiler
+      run: npx tsc --noEmit
+      
+  bundle-analysis:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    # Build and analyze bundle size
+    - name: Build application
+      run: npm run build
+      
+    - name: Analyze bundle size
+      uses: preactjs/compressed-size-action@v2
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        pattern: 'dist/**/*.{js,css}'
+        
+  # Aggregate job that requires all quality checks to pass
+  quality-gate:
+    runs-on: ubuntu-latest
+    needs: [lint, security, test-coverage, type-check, bundle-analysis]
+    if: always()
+    
+    steps:
+    - name: Check all jobs succeeded
+      run: |
+        if [[ "${{ needs.lint.result }}" != "success" ]] || 
+           [[ "${{ needs.security.result }}" != "success" ]] || 
+           [[ "${{ needs.test-coverage.result }}" != "success" ]] || 
+           [[ "${{ needs.type-check.result }}" != "success" && "${{ needs.type-check.result }}" != "skipped" ]] || 
+           [[ "${{ needs.bundle-analysis.result }}" != "success" ]]; then
+          echo "One or more quality checks failed!"
+          exit 1
+        fi
+        echo "All quality checks passed! ✅"

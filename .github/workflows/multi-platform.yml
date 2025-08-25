@@ -1,0 +1,88 @@
+# Multi-Platform Testing Workflow
+# This workflow shows how to test across multiple operating systems and versions
+
+name: Multi-Platform Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    # Matrix strategy: Run the same job with different configurations
+    strategy:
+      # Don't cancel other jobs if one fails
+      fail-fast: false
+      matrix:
+        # Test on multiple operating systems
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Test with multiple Node.js versions
+        node-version: [16, 18, 20]
+        # Optionally exclude specific combinations
+        exclude:
+          - os: windows-latest
+            node-version: 16
+    
+    # Use matrix values in job configuration
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    # Platform-specific dependency installation
+    - name: Install dependencies (Unix)
+      if: runner.os != 'Windows'
+      run: npm ci
+      
+    - name: Install dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: npm ci
+      shell: cmd
+      
+    - name: Run tests
+      run: npm test
+      
+    # Upload test results for each platform
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: test-results-${{ matrix.os }}-node${{ matrix.node-version }}
+        path: test-results.xml
+        
+  # Job that depends on test completion
+  coverage:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Generate coverage
+      run: npm run test:coverage
+      
+    - name: Upload coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: coverage/

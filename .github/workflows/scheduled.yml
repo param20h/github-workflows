@@ -1,0 +1,211 @@
+# Scheduled Maintenance Workflow
+# This workflow runs periodic maintenance tasks on a schedule
+
+name: Scheduled Maintenance
+
+on:
+  # Run every Sunday at 2 AM UTC
+  schedule:
+    - cron: '0 2 * * 0'
+  # Allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  dependency-updates:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    # Check for outdated dependencies
+    - name: Check outdated packages
+      run: npm outdated || true
+      
+    # Update patch and minor versions
+    - name: Update dependencies
+      run: |
+        npm update
+        npm audit fix
+        
+    # Check if there are changes
+    - name: Check for changes
+      id: changes
+      run: |
+        if [[ -n $(git status --porcelain) ]]; then
+          echo "changes=true" >> $GITHUB_OUTPUT
+        else
+          echo "changes=false" >> $GITHUB_OUTPUT
+        fi
+        
+    # Create pull request if there are updates
+    - name: Create Pull Request
+      if: steps.changes.outputs.changes == 'true'
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'chore: update dependencies'
+        title: 'Automated dependency updates'
+        body: |
+          This PR contains automated dependency updates:
+          
+          - Updated npm packages to latest compatible versions
+          - Applied security fixes from npm audit
+          
+          Please review the changes before merging.
+        branch: automated/dependency-updates
+        delete-branch: true
+        
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    # Comprehensive security audit
+    - name: Run security audit
+      run: |
+        echo "## Security Audit Report" > security-report.md
+        echo "Generated on: $(date)" >> security-report.md
+        echo "" >> security-report.md
+        
+        echo "### NPM Audit" >> security-report.md
+        npm audit --audit-level moderate >> security-report.md || true
+        
+    # Check for known vulnerabilities in Docker base images
+    - name: Scan Docker image for vulnerabilities
+      if: hashFiles('Dockerfile') != ''
+      run: |
+        docker build -t security-scan .
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy image security-scan >> security-report.md
+          
+    # Upload security report
+    - name: Upload security report
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-report
+        path: security-report.md
+        retention-days: 30
+        
+  health-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check GitHub API rate limits
+      run: |
+        RATE_LIMIT=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          https://api.github.com/rate_limit | jq '.rate.remaining')
+        echo "GitHub API rate limit remaining: $RATE_LIMIT"
+        
+        if [ "$RATE_LIMIT" -lt 1000 ]; then
+          echo "⚠️ GitHub API rate limit is low: $RATE_LIMIT remaining"
+        fi
+        
+    - name: Check repository health
+      run: |
+        echo "## Repository Health Check" > health-report.md
+        echo "Generated on: $(date)" >> health-report.md
+        echo "" >> health-report.md
+        
+        # Check repository size
+        REPO_SIZE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          https://api.github.com/repos/${{ github.repository }} | jq '.size')
+        echo "Repository size: ${REPO_SIZE}KB" >> health-report.md
+        
+        # Check open issues count
+        OPEN_ISSUES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          https://api.github.com/repos/${{ github.repository }} | jq '.open_issues_count')
+        echo "Open issues: $OPEN_ISSUES" >> health-report.md
+        
+        # Check for stale branches
+        echo "" >> health-report.md
+        echo "### Stale Branches" >> health-report.md
+        git for-each-ref --format='%(refname:short) %(committerdate)' refs/remotes/origin/ | \
+          awk '$2 <= "'$(date -d '30 days ago' '+%Y-%m-%d')'"' >> health-report.md || true
+          
+    - name: Upload health report
+      uses: actions/upload-artifact@v4
+      with:
+        name: health-report
+        path: health-report.md
+        retention-days: 7
+        
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write  # Required to delete workflow runs
+      
+    steps:
+    - name: Delete old workflow runs
+      uses: Mattraks/delete-workflow-runs@v2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        repository: ${{ github.repository }}
+        retain_days: 30
+        keep_minimum_runs: 5
+        
+    - name: Clean up old artifacts
+      run: |
+        # GitHub automatically deletes artifacts after 90 days by default
+        # This is just a placeholder for custom cleanup logic
+        echo "Cleaning up old artifacts..."
+        
+  notification:
+    runs-on: ubuntu-latest
+    needs: [dependency-updates, security-scan, health-check, cleanup]
+    if: always()
+    
+    steps:
+    - name: Send maintenance summary
+      uses: 8398a7/action-slack@v3
+      with:
+        status: custom
+        custom_payload: |
+          {
+            text: "🔧 Weekly maintenance completed",
+            attachments: [{
+              color: 'good',
+              fields: [{
+                title: "Dependency Updates",
+                value: "${{ needs.dependency-updates.result }}",
+                short: true
+              }, {
+                title: "Security Scan",
+                value: "${{ needs.security-scan.result }}",
+                short: true
+              }, {
+                title: "Health Check",
+                value: "${{ needs.health-check.result }}",
+                short: true
+              }, {
+                title: "Cleanup",
+                value: "${{ needs.cleanup.result }}",
+                short: true
+              }]
+            }]
+          }
+      env:
+        # Note: Add SLACK_WEBHOOK_URL to repository secrets for notifications
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
