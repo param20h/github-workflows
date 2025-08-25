@@ -1,0 +1,24 @@
+# STEP 1: The Absolute Basics
+# This is the simplest possible GitHub Actions workflow
+
+name: "Step 1 - Basic Hello World"
+
+# WHEN: When should this workflow run?
+on:
+  push:
+    branches: [ main ]
+
+# WHAT: What should it do?
+jobs:
+  hello-world:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: "Say Hello"
+        run: echo "Hello from GitHub Actions!"
+      
+      - name: "Show the date"
+        run: date
+      
+      - name: "Basic math"
+        run: echo "2 + 2 = $((2 + 2))"

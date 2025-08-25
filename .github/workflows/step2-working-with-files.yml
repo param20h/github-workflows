@@ -1,0 +1,43 @@
+# STEP 2: Working with Your Code Files
+# This shows how to access and work with your repository files
+
+name: "Step 2 - Working with Files"
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  work-with-files:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # IMPORTANT: Get your code files first!
+      - name: "📥 Download my code from GitHub"
+        uses: actions/checkout@v4
+      
+      - name: "📁 Show what files I have"
+        run: |
+          echo "Files in my repository:"
+          ls -la
+          echo ""
+          echo "Current directory:"
+          pwd
+      
+      - name: "📖 Read README file"
+        run: |
+          if [ -f README.md ]; then
+            echo "Contents of README.md:"
+            cat README.md
+          else
+            echo "No README.md found"
+          fi
+      
+      - name: "📝 Create a new file"
+        run: |
+          echo "Creating a test file..."
+          echo "This was created by GitHub Actions!" > test-file.txt
+          echo "Date: $(date)" >> test-file.txt
+          echo ""
+          echo "Contents of new file:"
+          cat test-file.txt

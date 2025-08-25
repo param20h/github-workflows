@@ -1,0 +1,78 @@
+# STEP 3: Testing Python Code
+# This shows how to set up Python and test code
+
+name: "Step 3 - Python Testing"
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: "📥 Get my code"
+        uses: actions/checkout@v4
+      
+      - name: "🐍 Setup Python"
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: "📋 Check Python version"
+        run: |
+          python --version
+          pip --version
+      
+      - name: "📝 Create Python calculator"
+        run: |
+          cat > calculator.py << 'EOF'
+          def add(a, b):
+              return a + b
+          
+          def subtract(a, b):
+              return a - b
+          
+          def multiply(a, b):
+              return a * b
+          
+          if __name__ == "__main__":
+              print("🧮 Python Calculator")
+              print(f"5 + 3 = {add(5, 3)}")
+              print(f"10 - 4 = {subtract(10, 4)}")
+              print(f"6 * 7 = {multiply(6, 7)}")
+              print("✅ Calculator works!")
+          EOF
+      
+      - name: "🏃 Run Python calculator"
+        run: python calculator.py
+      
+      - name: "🧪 Create and run tests"
+        run: |
+          cat > test_calculator.py << 'EOF'
+          import calculator
+          
+          def test_add():
+              result = calculator.add(2, 3)
+              assert result == 5, f"Expected 5, got {result}"
+              print("✅ Add test passed!")
+          
+          def test_subtract():
+              result = calculator.subtract(10, 3)
+              assert result == 7, f"Expected 7, got {result}"
+              print("✅ Subtract test passed!")
+          
+          def test_multiply():
+              result = calculator.multiply(4, 5)
+              assert result == 20, f"Expected 20, got {result}"
+              print("✅ Multiply test passed!")
+          
+          if __name__ == "__main__":
+              test_add()
+              test_subtract()
+              test_multiply()
+              print("🎉 All Python tests passed!")
+          EOF
+          
+          python test_calculator.py
