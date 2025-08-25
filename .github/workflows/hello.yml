@@ -1,0 +1,13 @@
+# Minimal GitHub Actions workflow example
+name: Hello Workflow
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print greeting
+        run: echo "Hello, GitHub Actions!"
