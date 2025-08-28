@@ -9,7 +9,7 @@ A comprehensive guide to understanding and implementing GitHub Actions workflows
 3. [Workflow Examples](#workflow-examples)
 4. [Best Practices](#best-practices)
 5. [Common Use Cases](#common-use-cases)
-6. [Resources](#resources)
+6. [Resources](#resources) 
 
 ## What are GitHub Workflows?
 
